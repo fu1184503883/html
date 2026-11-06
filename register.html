@@ -3,16 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>用户注册与人脸录入</title>
-    <!-- 1. 引入 Supabase -->
-    <script type="module">
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
-        const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
-        const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        window.supabase = supabase; // 挂载到全局
-    </script>
-    <!-- 2. 引入本地 face-api.js (修改了路径) -->
+    
+    <!-- 1. 传统方式引入 Supabase，最稳定不报错 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- 2. 引入本地 face-api.js (注意路径) -->
     <script src="./face-api.js-master/dist/face-api.min.js"></script>
+
     <style>
         body { font-family: 'Microsoft YaHei'; display: flex; justify-content: center; background: #f4f7f6; padding-top: 30px;}
         .box { background: white; padding: 30px; border-radius: 10px; width: 400px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -36,25 +33,39 @@
     
     <video id="reg-video" autoplay muted playsinline></video>
     <button onclick="startCameraAndRegister()" id="btn-reg">点击拍照并完成注册</button>
-    <div id="status"></div>
+    <div id="status">正在加载 AI 模型，请稍候...</div>
     <div style="margin-top:20px; font-size:14px;"><a href="index.html">已有账号？去登录</a></div>
 </div>
 
 <script>
-    // 加载本地模型 (修改了路径)
+    // 初始化 Supabase
+    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+    // 加载本地模型
     Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights')
     ]).then(() => {
-        document.getElementById('status').innerText = "AI 模型已就绪，请填写信息后点击注册";
+        document.getElementById('status').innerText = "AI 模型已就绪，正在打开摄像头...";
         document.getElementById('status').style.color = "#2ecc71";
-        document.getElementById('reg-video').style.display = 'block';
-        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-            document.getElementById('reg-video').srcObject = stream;
-        });
+        
+        // 模型加载成功后，立刻开启摄像头
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                const video = document.getElementById('reg-video');
+                video.srcObject = stream;
+                video.style.display = 'block'; // 显示摄像头窗口
+                document.getElementById('status').innerText = "请填写信息，然后点击下方按钮注册";
+            })
+            .catch(err => {
+                document.getElementById('status').innerText = "摄像头打开失败：" + err.message;
+            });
     }).catch(err => {
-        document.getElementById('status').innerText = "模型加载失败，请检查 face-api.js-master 路径";
+        document.getElementById('status').innerText = "模型加载失败，请检查 face-api.js-master 文件夹路径是否正确！";
+        console.error(err);
     });
 
     async function startCameraAndRegister() {
@@ -66,6 +77,7 @@
 
         if (!name) {
             status.innerText = "姓名是必填项！";
+            status.style.color = "#e74c3c";
             return;
         }
 
@@ -73,7 +85,6 @@
         status.style.color = "#1890ff";
         
         try {
-            // 抓拍并确认有人脸
             const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
             if (!detection) {
                 status.innerText = "未检测到人脸，请对准镜头重试！";
@@ -81,7 +92,7 @@
                 return;
             }
 
-            // 截取画面转为图片 Blob
+            // 截取画面
             const canvas = faceapi.createCanvasFromMedia(video);
             canvas.width = 300; canvas.height = 225;
             canvas.getContext('2d').drawImage(video, 0, 0, 300, 225);
@@ -89,17 +100,17 @@
             
             // 上传到 Supabase Storage
             const fileName = `${name}_${Date.now()}.jpg`;
-            const { data: uploadData, error: uploadError } = await window.supabase.storage
+            const { data: uploadData, error: uploadError } = await supabaseClient.storage
                 .from('faces')
                 .upload(`public/${fileName}`, blob, { contentType: 'image/jpeg' });
 
             if (uploadError) throw new Error("照片上传失败: " + uploadError.message);
 
-            // 获取公开链接
-            const { data: urlData } = window.supabase.storage.from('faces').getPublicUrl(`public/${fileName}`);
+            // 获取链接
+            const { data: urlData } = supabaseClient.storage.from('faces').getPublicUrl(`public/${fileName}`);
 
             // 存入数据库
-            const { error: dbError } = await window.supabase.from('users_face').insert([{
+            const { error: dbError } = await supabaseClient.from('users_face').insert([{
                 name: name, age: age, gender: gender, image_url: urlData.publicUrl
             }]);
 
