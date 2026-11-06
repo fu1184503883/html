@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>人脸识别验证</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        body { font-family: 'Microsoft YaHei'; text-align: center; background: #f4f7f6; padding-top: 30px;}
+        .box { background: white; padding: 30px; border-radius: 10px; width: 500px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        video { width: 100%; border-radius: 10px; background: #000; margin-top: 15px; }
+        input { padding: 10px; width: 60%; border: 1px solid #ccc; border-radius: 5px; font-size: 16px;}
+        button { padding: 10px 20px; font-size: 16px; border: none; border-radius: 5px; color: white; background: #2ecc71; cursor: pointer; margin-left: 10px;}
+        button:disabled { background: #95a5a6; cursor: not-allowed; }
+        .btn-again { background: #e67e22; display: none; margin: 15px auto 0 auto;}
+        #status { font-size: 22px; font-weight: bold; margin: 15px 0; color: #555; }
+    </style>
+</head>
+<body>
+<div class="box">
+    <h2>人脸验证系统</h2>
+    <div>
+        <input type="text" id="verify-name" placeholder="请输入要验证的姓名" required>
+        <button id="btn-verify" onclick="verifyFace()">开始验证</button>
+    </div>
+    
+    <div id="status">等待操作...</div>
+
+    <!-- 始终存在的视频窗口，但验证时才会开启 -->
+    <video id="video" autoplay muted playsinline style="display:none;"></video>
+    
+    <!-- 重新验证按钮，默认隐藏 -->
+    <button id="btn-again" class="btn-again" onclick="resetVerify()">不是本人？重新验证</button>
+</div>
+
+<script>
+    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+    const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+    let videoStream = null; // 保存摄像头流，方便关闭
+    let isProcessing = false; // 防止重复点击
+
+    // 加载模型
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights')
+    ]).then(() => {
+        document.getElementById('status').innerText = "AI 模型已就绪";
+    });
+
+    async function verifyFace() {
+        if (isProcessing) return;
+        const name = document.getElementById('verify-name').value.trim();
+        if (!name) { alert("请输入姓名！"); return; }
+
+        const statusDiv = document.getElementById('status');
+        const btnVerify = document.getElementById('btn-verify');
+        
+        isProcessing = true;
+        btnVerify.disabled = true;
+        statusDiv.style.color = "#1890ff";
+        statusDiv.innerText = "正在查询数据库，寻找 " + name + " 的照片...";
+
+        try {
+            // 1. 从数据库查询这个名字对应的所有照片
+            const { data: users, error } = await supabase
+                .from('users_face')
+                .select('*')
+                .eq('name', name);
+
+            if (error) throw error;
+            if (!users || users.length === 0) {
+                statusDiv.innerText = "没有找到该用户，请先去注册！";
+                statusDiv.style.color = "#e74c3c";
+                resetBtn();
+                return;
+            }
+
+            statusDiv.innerText = "找到 " + users.length + " 张底片，正在开启摄像头...";
+            
+            // 2. 开启摄像头
+            const video = document.getElementById('video');
+            video.style.display = 'block';
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = videoStream;
+            await new Promise(r => setTimeout(r, 800)); // 等摄像头画面稳定
+
+            statusDiv.innerText = "请正对摄像头，正在比对...";
+            
+            // 3. 抓拍当前人脸
+            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (!detection) {
+                statusDiv.innerText = "未检测到人脸，请重试！";
+                statusDiv.style.color = "#e74c3c";
+                stopCamera();
+                resetBtn();
+                return;
+            }
+
+            // 4. 遍历找到的所有照片进行比对
+            let isMatch = false;
+            for (const user of users) {
+                const img = await faceapi.fetchImage(user.image_url);
+                const refDetection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+                
+                if (refDetection) {
+                    const distance = faceapi.euclideanDistance(detection.descriptor, refDetection.descriptor);
+                    // 只要有一张匹配（比如同名双胞胎，或不同角度），就算通过
+                    if (distance < 0.55) { 
+                        isMatch = true;
+                        break; 
+                    }
+                }
+            }
+
+            // 5. 结果展示
+            if (isMatch) {
+                statusDiv.innerText = "✅ " + name + "，验证成功！";
+                statusDiv.style.color = "#2ecc71";
+                document.getElementById('btn-again').style.display = 'inline-block';
+            } else {
+                statusDiv.innerText = "❌ 验证失败，人脸不匹配！";
+                statusDiv.style.color = "#e74c3c";
+                document.getElementById('btn-again').style.display = 'inline-block';
+            }
+
+        } catch (err) {
+            statusDiv.innerText = "发生错误：" + err.message;
+            statusDiv.style.color = "#e74c3c";
+            stopCamera();
+        }
+        
+        // 无论成功失败，关闭摄像头并恢复状态
+        stopCamera();
+        resetBtn();
+    }
+
+    function stopCamera() {
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            document.getElementById('video').style.display = 'none';
+            videoStream = null;
+        }
+    }
+
+    function resetBtn() {
+        isProcessing = false;
+        document.getElementById('btn-verify').disabled = false;
+    }
+
+    // 如果操作员发现不是本人，点击“重新验证”清空状态
+    function resetVerify() {
+        document.getElementById('verify-name').value = '';
+        document.getElementById('status').innerText = "等待操作...";
+        document.getElementById('status').style.color = "#555";
+        document.getElementById('btn-again').style.display = 'none';
+    }
+</script>
+</body>
+</html>

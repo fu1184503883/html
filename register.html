@@ -2,80 +2,112 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户注册</title>
+    <title>用户注册与人脸录入</title>
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+        const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+        const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        window.supabase = supabase;
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: white; padding: 40px 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; margin-top: 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #3498db; color: white; font-size: 16px; font-weight: bold; }
-        button:hover { background-color: #2980b9; }
-        .links { margin-top: 15px; font-size: 14px; }
-        .links a { color: #2ecc71; text-decoration: none; }
-        #status { margin-top: 15px; font-size: 14px; color: #e74c3c; }
+        body { font-family: 'Microsoft YaHei'; display: flex; justify-content: center; background: #f4f7f6; padding-top: 30px;}
+        .box { background: white; padding: 30px; border-radius: 10px; width: 400px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        input, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        video { width: 100%; border-radius: 10px; background: #000; margin-top: 10px; display: none;}
+        button { width: 100%; padding: 12px; margin-top: 15px; border: none; border-radius: 5px; color: white; background: #3498db; cursor: pointer; font-size: 16px;}
+        #status { color: #e74c3c; margin-top: 10px; font-size: 14px;}
     </style>
 </head>
 <body>
-
 <div class="box">
-    <h2>创建新账号</h2>
-    <input type="email" id="email" placeholder="请输入邮箱" required>
-    <input type="password" id="password" placeholder="设置密码（至少6位）" required>
-    <input type="password" id="confirm-password" placeholder="请再次输入密码" required>
-    <button onclick="register()">注 册</button>
+    <h2>创建账号 (录入人脸)</h2>
+    <input type="text" id="reg-name" placeholder="请输入姓名 (必填)" required>
+    <input type="number" id="reg-age" placeholder="请输入年龄">
+    <select id="reg-gender">
+        <option value="男">男</option>
+        <option value="女">女</option>
+        <option value="保密">保密</option>
+    </select>
     
-    <div class="links">
-        已有账号？ <a href="index.html">返回登录</a>
-    </div>
+    <video id="reg-video" autoplay muted playsinline></video>
+    <button onclick="startCameraAndRegister()" id="btn-reg">点击拍照并完成注册</button>
     <div id="status"></div>
+    <div style="margin-top:20px; font-size:14px;"><a href="index.html">已有账号？去登录</a></div>
 </div>
 
-<script type="module">
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+<script>
+    // 加载模型（同之前）
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights')
+    ]).then(() => {
+        document.getElementById('reg-video').style.display = 'block';
+    });
 
-    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
-    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    window.register = async function() {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        const confirmPassword = document.getElementById('confirm-password').value;
+    async function startCameraAndRegister() {
+        const name = document.getElementById('reg-name').value;
+        const age = document.getElementById('reg-age').value;
+        const gender = document.getElementById('reg-gender').value;
         const status = document.getElementById('status');
 
-        // 基础校验
-        if(!email || !password || !confirmPassword) {
-            status.innerText = "请填写所有信息！";
-            return;
-        }
-        if(password !== confirmPassword) {
-            status.innerText = "两次输入的密码不一致！";
-            return;
-        }
-        if(password.length < 6) {
-            status.innerText = "密码长度不能少于6位！";
+        if (!name) {
+            status.innerText = "姓名是必填项！";
             return;
         }
 
-        status.style.color = "#555";
-        status.innerText = "正在注册...";
+        status.innerText = "正在处理中，请保持面部在画面中...";
+        
+        try {
+            // 1. 开启摄像头
+            const video = document.getElementById('reg-video');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            await new Promise(r => setTimeout(r, 1000)); // 等摄像头稳定
 
-        const { data, error } = await supabase.auth.signUp({
-            email: email,
-            password: password,
-        });
+            // 2. 抓拍并确认有人脸
+            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (!detection) {
+                status.innerText = "未检测到人脸，请对准镜头重试！";
+                stream.getTracks().forEach(t => t.stop());
+                return;
+            }
 
-        if (error) {
-            status.style.color = "#e74c3c";
-            status.innerText = "注册失败: " + error.message;
-        } else {
+            // 3. 截取当前画面转为图片
+            const canvas = faceapi.createCanvasFromMedia(video);
+            canvas.width = 300; canvas.height = 225;
+            canvas.getContext('2d').drawImage(video, 0, 0, 300, 225);
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+            
+            // 4. 上传到 Supabase Storage (存为 名字_时间戳.jpg)
+            const fileName = `${name}_${Date.now()}.jpg`;
+            const { data: uploadData, error: uploadError } = await window.supabase.storage
+                .from('faces')
+                .upload(`public/${fileName}`, blob, { contentType: 'image/jpeg' });
+
+            if (uploadError) throw new Error("照片上传失败: " + uploadError.message);
+
+            // 5. 获取公开访问链接
+            const { data: urlData } = window.supabase.storage.from('faces').getPublicUrl(`public/${fileName}`);
+
+            // 6. 存入数据库表
+            const { error: dbError } = await window.supabase.from('users_face').insert([{
+                name: name, age: age, gender: gender, image_url: urlData.publicUrl
+            }]);
+
+            if (dbError) throw new Error("保存信息失败: " + dbError.message);
+
             status.style.color = "#2ecc71";
-            status.innerText = "注册成功！即将跳转回登录页...";
-            // 延迟 1.5 秒后跳转回登录页
+            status.innerText = "✅ 注册成功！即将跳转登录...";
+            stream.getTracks().forEach(t => t.stop());
             setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+
+        } catch (err) {
+            status.innerText = "出错啦：" + err.message;
         }
     }
 </script>
-
 </body>
 </html>
