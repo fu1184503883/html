@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的测试网站</title>
+    <style>
+        /* 这里是 CSS 样式，用来美化页面 */
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background-color: #f4f7f6;
+            text-align: center;
+            padding-top: 50px;
+        }
+        .container {
+            background: white;
+            width: 80%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        p {
+            color: #555;
+            font-size: 18px;
+        }
+        .success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>🎉 恭喜！网站配置成功</h1>
+        <p class="success">如果你能看到这个页面，说明你的域名解析、主机绑定和 FTP 上传都已经完全正确了！</p>
+        
+        <hr style="border: 1px solid #eee; margin: 30px 0;">
+
+        <p>你可以点击下面的按钮测试网页跳转功能：</p>
+        <!-- 这是一个跳转按钮，点击会跳转到百度 -->
+        <a href="https://www.baidu.com" class="btn">点击跳转到百度</a>
+    </div>
+
+</body>
+</html>
