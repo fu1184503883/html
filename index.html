@@ -3,62 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>我的测试网站</title>
+    <title>我的登录注册系统</title>
     <style>
-        /* 这里是 CSS 样式，用来美化页面 */
-        body {
-            font-family: 'Microsoft YaHei', sans-serif;
-            background-color: #f4f7f6;
-            text-align: center;
-            padding-top: 50px;
-        }
-        .container {
-            background: white;
-            width: 80%;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2c3e50;
-        }
-        p {
-            color: #555;
-            font-size: 18px;
-        }
-        .success {
-            color: #27ae60;
-            font-weight: bold;
-        }
-        .btn {
-            display: inline-block;
-            background-color: #3498db;
-            color: white;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 5px;
-            margin-top: 20px;
-            transition: background 0.3s;
-        }
-        .btn:hover {
-            background-color: #2980b9;
-        }
+        body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 300px; text-align: center; }
+        input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; }
+        button { width: 100%; padding: 10px; margin-top: 15px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 16px; }
+        .btn-register { background-color: #3498db; }
+        .btn-login { background-color: #2ecc71; }
+        .btn-logout { background-color: #e74c3c; display: none; }
+        #status { margin-top: 15px; font-size: 14px; color: #555; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>🎉 恭喜！网站配置成功</h1>
-        <p class="success">如果你能看到这个页面，说明你的域名解析、主机绑定和 FTP 上传都已经完全正确了！</p>
-        
-        <hr style="border: 1px solid #eee; margin: 30px 0;">
-
-        <p>你可以点击下面的按钮测试网页跳转功能：</p>
-        <!-- 这是一个跳转按钮，点击会跳转到百度 -->
-        <a href="https://www.baidu.com" class="btn">点击跳转到百度</a>
+<div class="box">
+    <h2>欢迎</h2>
+    
+    <div id="auth-form">
+        <input type="email" id="email" placeholder="请输入邮箱" required>
+        <input type="password" id="password" placeholder="请输入密码" required>
+        <button class="btn-register" onclick="register()">注 册</button>
+        <button class="btn-login" onclick="login()">登 录</button>
     </div>
+
+    <button class="btn-logout" id="logout-btn" onclick="logout()">退出登录</button>
+    <div id="status">请输入账号密码进行操作</div>
+</div>
+
+<!-- 引入最新版 Supabase -->
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+    // 已经为你填好了 URL 和 Key（注意：URL 去掉了后面的 /rest/v1/）
+    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+    
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 将函数挂载到 window 对象上，这样 HTML 里的 onclick 才能找到它们
+    window.register = async function() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        
+        if(!email || !password) {
+            document.getElementById('status').innerText = "请输入邮箱和密码！";
+            return;
+        }
+        document.getElementById('status').innerText = "正在注册...";
+        
+        const { data, error } = await supabase.auth.signUp({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            document.getElementById('status').innerText = "注册失败: " + error.message;
+        } else {
+            document.getElementById('status').innerText = "注册成功！请直接点击登录。";
+        }
+    }
+
+    window.login = async function() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        document.getElementById('status').innerText = "正在登录...";
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            document.getElementById('status').innerText = "登录失败: " + error.message;
+        } else {
+            document.getElementById('status').innerText = "登录成功！欢迎回来: " + email;
+            document.getElementById('auth-form').style.display = 'none';
+            document.getElementById('logout-btn').style.display = 'block';
+        }
+    }
+
+    window.logout = async function() {
+        await supabase.auth.signOut();
+        document.getElementById('status').innerText = "已退出登录。";
+        document.getElementById('auth-form').style.display = 'block';
+        document.getElementById('logout-btn').style.display = 'none';
+        document.getElementById('password').value = ''; 
+    }
+</script>
 
 </body>
 </html>
