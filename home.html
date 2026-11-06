@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主页</title>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 40px 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 400px; text-align: center; }
+        button { padding: 10px 20px; margin-top: 20px; border: none; border-radius: 5px; cursor: pointer; background-color: #e74c3c; color: white; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>🎉 欢迎进入系统</h2>
+    <p>你已经成功登录！</p>
+    <p>当前登录账号：<strong id="user-email" style="color: #3498db;">读取中...</strong></p>
+    <button onclick="logout()">退出登录</button>
+</div>
+
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 页面加载时，检查是否有登录状态，并显示邮箱
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+            document.getElementById('user-email').innerText = session.user.email;
+        } else {
+            // 如果没有登录，强制踢回登录页
+            window.location.href = 'index.html';
+        }
+    });
+
+    window.logout = async function() {
+        await supabase.auth.signOut();
+        window.location.href = 'index.html';
+    }
+</script>
+
+</body>
+</html>

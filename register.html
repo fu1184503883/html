@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户注册</title>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 40px 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; margin-top: 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #3498db; color: white; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #2980b9; }
+        .links { margin-top: 15px; font-size: 14px; }
+        .links a { color: #2ecc71; text-decoration: none; }
+        #status { margin-top: 15px; font-size: 14px; color: #e74c3c; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>创建新账号</h2>
+    <input type="email" id="email" placeholder="请输入邮箱" required>
+    <input type="password" id="password" placeholder="设置密码（至少6位）" required>
+    <input type="password" id="confirm-password" placeholder="请再次输入密码" required>
+    <button onclick="register()">注 册</button>
+    
+    <div class="links">
+        已有账号？ <a href="index.html">返回登录</a>
+    </div>
+    <div id="status"></div>
+</div>
+
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+    const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
+    const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    window.register = async function() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        const status = document.getElementById('status');
+
+        // 基础校验
+        if(!email || !password || !confirmPassword) {
+            status.innerText = "请填写所有信息！";
+            return;
+        }
+        if(password !== confirmPassword) {
+            status.innerText = "两次输入的密码不一致！";
+            return;
+        }
+        if(password.length < 6) {
+            status.innerText = "密码长度不能少于6位！";
+            return;
+        }
+
+        status.style.color = "#555";
+        status.innerText = "正在注册...";
+
+        const { data, error } = await supabase.auth.signUp({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            status.style.color = "#e74c3c";
+            status.innerText = "注册失败: " + error.message;
+        } else {
+            status.style.color = "#2ecc71";
+            status.innerText = "注册成功！即将跳转回登录页...";
+            // 延迟 1.5 秒后跳转回登录页
+            setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+        }
+    }
+</script>
+
+</body>
+</html>
