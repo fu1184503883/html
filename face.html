@@ -2,155 +2,100 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>人脸识别验证</title>
-    
-    <!-- 引入 Supabase -->
+    <title>人脸识别验证 (纯本地模型版)</title>
+    <!-- 引入 Supabase (这个必须连外网，如果是 Supabase 被墙请挂梯子或换国内 BaaS) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- 引入 face-api.js -->
-    <script src="./face-api.js-master/dist/face-api.min.js"></script>
-
+    <!-- 引入你本地的 face-api.js -->
+    <script defer src="./face-api.js-master/dist/face-api.min.js"></script>
     <style>
         body { font-family: 'Microsoft YaHei'; text-align: center; background: #f4f7f6; padding-top: 30px;}
         .box { background: white; padding: 30px; border-radius: 10px; width: 500px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         video { width: 100%; border-radius: 10px; background: #000; margin-top: 15px; display: none;}
         input { padding: 10px; width: 60%; border: 1px solid #ccc; border-radius: 5px; font-size: 16px;}
         button { padding: 10px 20px; font-size: 16px; border: none; border-radius: 5px; color: white; background: #2ecc71; cursor: pointer; margin-left: 10px;}
-        button:disabled { background: #95a5a6; cursor: not-allowed; }
-        .btn-again { background: #e67e22; display: none; margin: 15px auto 0 auto; width: 200px;}
-        #status { font-size: 22px; font-weight: bold; margin: 15px 0; color: #555; }
+        #status { font-size: 20px; font-weight: bold; margin: 15px 0; color: #555; }
     </style>
 </head>
 <body>
 <div class="box">
     <h2>人脸验证系统</h2>
-    <div>
-        <input type="text" id="verify-name" placeholder="请输入要验证的姓名" required>
-        <button id="btn-verify" onclick="verifyFace()">开始验证</button>
-    </div>
-    
-    <div id="status">正在加载模型，请稍候...</div>
+    <input type="text" id="verify-name" placeholder="输入姓名">
+    <button onclick="verifyFace()">验证</button>
+    <div id="status">正在加载本地模型...</div>
     <video id="video" autoplay muted playsinline></video>
-    <button id="btn-again" class="btn-again" onclick="resetVerify()">不是本人？重新验证</button>
 </div>
 
 <script>
     const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
     const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+    let client;
 
-    let videoStream = null; 
-    let isProcessing = false; 
-
-    // 加载模型
-    Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights'),
-        faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights'),
-        faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights')
-    ]).then(() => {
-        document.getElementById('status').innerText = "AI 模型已就绪，请输入姓名";
-        document.getElementById('status').style.color = "#2ecc71";
-    }).catch(err => {
-        document.getElementById('status').innerText = "模型加载失败，请检查路径";
-        document.getElementById('status').style.color = "#e74c3c";
-    });
-
-    async function verifyFace() {
-        if (isProcessing) return;
-        const name = document.getElementById('verify-name').value.trim();
-        if (!name) { alert("请输入姓名！"); return; }
-
-        const statusDiv = document.getElementById('status');
-        const btnVerify = document.getElementById('btn-verify');
-        
-        isProcessing = true;
-        btnVerify.disabled = true;
-        statusDiv.style.color = "#1890ff";
-        statusDiv.innerText = "正在查询 " + name + " 的照片...";
+    window.onload = async () => {
+        if(typeof supabase === 'undefined') {
+            document.getElementById('status').innerText = "Supabase 加载失败，可能需要科学上网或换 CDN";
+            return;
+        }
+        client = supabase.createClient(supabaseUrl, supabaseKey);
 
         try {
-            const { data: users, error } = await supabaseClient.from('users_face').select('*').eq('name', name);
-
-            if (error) throw error;
-            if (!users || users.length === 0) {
-                statusDiv.innerText = "没有找到该用户，请先去注册！";
-                statusDiv.style.color = "#e74c3c";
-                resetBtn();
-                return;
-            }
-
-            statusDiv.innerText = "找到 " + users.length + " 张底片，正在开启摄像头...";
+            document.getElementById('status').innerText = "正在加载本地模型...";
+            // 用你本地文件夹里的模型，不走外网！
+            await faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights');
             
-            // 开启摄像头
+            document.getElementById('status').innerText = "模型就绪，请输入姓名";
+            document.getElementById('status').style.color = "#2ecc71";
+        } catch (e) {
+            document.getElementById('status').innerText = "本地模型加载失败，请检查路径：./face-api.js-master/weights";
+            console.error(e);
+        }
+    }
+
+    async function verifyFace() {
+        const name = document.getElementById('verify-name').value;
+        if(!name) return alert("请输入姓名");
+        const status = document.getElementById('status');
+        status.innerText = "正在查库...";
+        
+        try {
+            const { data, error } = await client.from('users_face').select('*').eq('name', name);
+            if(error) throw new Error("数据库连接失败: " + error.message);
+            if(data.length === 0) { status.innerText = "未找到此人"; return; }
+            
+            status.innerText = "开启摄像头...";
             const video = document.getElementById('video');
             video.style.display = 'block';
-            videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = videoStream;
-            await new Promise(r => setTimeout(r, 1200)); // 给摄像头一点启动时间
-
-            statusDiv.innerText = "请正对摄像头，正在比对...";
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            await new Promise(r => setTimeout(r, 1500));
             
-            // 抓拍当前人脸
-            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            if (!detection) {
-                statusDiv.innerText = "未检测到人脸，请靠近一点重试！";
-                statusDiv.style.color = "#e74c3c";
-                stopCamera();
-                resetBtn();
-                return;
+            status.innerText = "比对中...";
+            const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if(!det) { 
+                status.innerText = "未检测到人脸"; 
+                stream.getTracks().forEach(t=>t.stop()); 
+                video.style.display='none';
+                return; 
             }
-
-            // 遍历照片比对
-            let isMatch = false;
-            for (const user of users) {
+            
+            let match = false;
+            for(let user of data) {
+                // 注意：如果这里 ERR_CONNECTION_RESET，说明 Supabase 的图片存储被墙了
                 const img = await faceapi.fetchImage(user.image_url);
-                const refDetection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-                
-                if (refDetection) {
-                    const distance = faceapi.euclideanDistance(detection.descriptor, refDetection.descriptor);
-                    if (distance < 0.55) { // 相似度阈值
-                        isMatch = true;
-                        break; 
-                    }
+                const ref = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+                if(ref && faceapi.euclideanDistance(det.descriptor, ref.descriptor) < 0.55) {
+                    match = true; break;
                 }
             }
-
-            if (isMatch) {
-                statusDiv.innerText = "✅ " + name + "，验证成功！";
-                statusDiv.style.color = "#2ecc71";
-            } else {
-                statusDiv.innerText = "❌ 验证失败，人脸不匹配！";
-                statusDiv.style.color = "#e74c3c";
-            }
-            document.getElementById('btn-again').style.display = 'block';
-
-        } catch (err) {
-            statusDiv.innerText = "发生错误：" + err.message;
-            statusDiv.style.color = "#e74c3c";
-            stopCamera();
+            
+            status.innerText = match ? "✅ 验证通过！" : "❌ 验证失败！";
+            status.style.color = match ? "#2ecc71" : "#e74c3c";
+            stream.getTracks().forEach(t=>t.stop());
+            video.style.display = 'none';
+        } catch(e) {
+            status.innerText = "报错: " + e.message;
         }
-        
-        stopCamera();
-        resetBtn();
-    }
-
-    function stopCamera() {
-        if (videoStream) {
-            videoStream.getTracks().forEach(t => t.stop());
-            document.getElementById('video').style.display = 'none';
-            videoStream = null;
-        }
-    }
-
-    function resetBtn() {
-        isProcessing = false;
-        document.getElementById('btn-verify').disabled = false;
-    }
-
-    function resetVerify() {
-        document.getElementById('verify-name').value = '';
-        document.getElementById('status').innerText = "等待操作...";
-        document.getElementById('status').style.color = "#555";
-        document.getElementById('btn-again').style.display = 'none';
     }
 </script>
 </body>
