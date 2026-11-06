@@ -2,72 +2,117 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户登录</title>
+    <title>系统登录</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./face-api.js-master/dist/face-api.min.js"></script>
     <style>
-        body { font-family: 'Microsoft YaHei', sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: white; padding: 40px 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; margin-top: 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #2ecc71; color: white; font-size: 16px; font-weight: bold; }
-        button:hover { background-color: #27ae60; }
-        .links { margin-top: 15px; font-size: 14px; }
-        .links a { color: #3498db; text-decoration: none; }
+        body { font-family: 'Microsoft YaHei'; background: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; text-align: center; }
+        input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; margin-top: 10px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 16px; }
+        .btn-pwd { background-color: #2ecc71; }
+        .btn-face { background-color: #3498db; }
+        .btn-reg { background-color: #9b59b6; }
         #status { margin-top: 15px; font-size: 14px; color: #e74c3c; }
+        video { width: 100%; display: none; border-radius: 5px; margin-top: 10px; }
     </style>
 </head>
 <body>
-
 <div class="box">
-    <h2>欢迎登录</h2>
-    <input type="email" id="email" placeholder="请输入邮箱" required>
-    <input type="password" id="password" placeholder="请输入密码" required>
-    <button onclick="login()">登 录</button>
+    <h2>登录系统</h2>
+    <input type="email" id="email" placeholder="邮箱 (纯人脸登录可不填)">
+    <input type="password" id="password" placeholder="密码 (纯人脸登录可不填)">
+    <button class="btn-pwd" onclick="loginWithPwd()">邮箱密码登录</button>
     
-    <div class="links">
-        还没有账号？ <a href="register.html">立即注册</a>
-    </div>
+    <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+    
+    <input type="text" id="face-name" placeholder="输入姓名进行人脸识别">
+    <button class="btn-face" onclick="loginWithFace()" id="btn-face">开启摄像头人脸登录</button>
+    <video id="video" autoplay muted playsinline></video>
+    
+    <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+    <button class="btn-reg" onclick="window.location.href='register.html'">去注册新账号</button>
     <div id="status"></div>
 </div>
 
-<script type="module">
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
-
+<script>
     const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
     const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const client = supabase.createClient(supabaseUrl, supabaseKey);
 
-    // 检查是否已经登录，如果已登录直接进主页
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // 检查已有登录状态
+    client.auth.getSession().then(({ data: { session } }) => {
         if (session) { window.location.href = 'home.html'; }
     });
 
-    window.login = async function() {
+    // 1. 邮箱密码登录
+    async function loginWithPwd() {
         const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
         const status = document.getElementById('status');
-
-        if(!email || !password) {
-            status.innerText = "请输入邮箱和密码！";
-            return;
-        }
-        status.style.color = "#555";
+        if(!email || !password) { status.innerText = "请输入邮箱和密码"; return; }
+        
         status.innerText = "正在登录...";
+        const { error } = await client.auth.signInWithPassword({ email, password });
+        if (error) { status.innerText = "登录失败: " + error.message; }
+        else { window.location.href = 'home.html'; }
+    }
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: password,
-        });
+    // 2. 人脸识别登录
+    let isModelLoaded = false;
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights')
+    ]).then(() => { isModelLoaded = true; });
 
-        if (error) {
-            status.style.color = "#e74c3c";
-            status.innerText = "登录失败: " + (error.message === 'Invalid login credentials' ? '账号或密码错误' : error.message);
+    async function loginWithFace() {
+        const name = document.getElementById('face-name').value.trim();
+        const status = document.getElementById('status');
+        const video = document.getElementById('video');
+        
+        if (!name) { status.innerText = "请输入姓名"; return; }
+        if (!isModelLoaded) { status.innerText = "模型加载中，请稍候..."; return; }
+
+        status.innerText = "正在查询用户信息...";
+        // 去数据库查这个人绑定的邮箱（如果注册时绑定了的话）
+        const { data: users } = await client.from('users_face').select('*').eq('name', name);
+        if (!users || users.length === 0) { status.innerText = "未找到该用户"; return; }
+
+        status.innerText = "请正对摄像头，正在识别...";
+        video.style.display = 'block';
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        await new Promise(r => setTimeout(r, 1500));
+
+        const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+        if (!det) { status.innerText = "未检测到人脸"; stopCam(stream, video); return; }
+
+        let isMatch = false;
+        for (let user of users) {
+            const img = await faceapi.fetchImage(user.image_url);
+            const ref = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (ref && faceapi.euclideanDistance(det.descriptor, ref.descriptor) < 0.55) {
+                isMatch = true; break;
+            }
+        }
+
+        stopCam(stream, video);
+        if (isMatch) {
+            status.style.color = "green";
+            status.innerText = `✅ 欢迎回来，${name}！`;
+            // 注意：纯前端无法直接通过人脸生成 Supabase 的 Session。
+            // 如果你需要真实会话，必须在注册时强制绑定邮箱密码，并在这里悄悄执行一次登录。
+            setTimeout(() => { window.location.href = 'home.html'; }, 1500); 
         } else {
-            status.style.color = "#2ecc71";
-            status.innerText = "登录成功，正在跳转...";
-            setTimeout(() => { window.location.href = 'home.html'; }, 800);
+            status.innerText = "❌ 人脸不匹配，验证失败";
         }
     }
-</script>
 
+    function stopCam(stream, video) {
+        stream.getTracks().forEach(t => t.stop());
+        video.style.display = 'none';
+    }
+</script>
 </body>
 </html>

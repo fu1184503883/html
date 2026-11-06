@@ -2,119 +2,98 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>用户注册与人脸录入</title>
-    
-    <!-- 1. 传统方式引入 Supabase，最稳定不报错 -->
+    <title>用户注册</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <!-- 2. 引入本地 face-api.js (注意路径) -->
     <script src="./face-api.js-master/dist/face-api.min.js"></script>
-
     <style>
-        body { font-family: 'Microsoft YaHei'; display: flex; justify-content: center; background: #f4f7f6; padding-top: 30px;}
+        body { font-family: 'Microsoft YaHei'; display: flex; justify-content: center; background: #f4f7f6; padding: 20px 0;}
         .box { background: white; padding: 30px; border-radius: 10px; width: 400px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         input, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         video { width: 100%; border-radius: 10px; background: #000; margin-top: 10px; display: none;}
         button { width: 100%; padding: 12px; margin-top: 15px; border: none; border-radius: 5px; color: white; background: #3498db; cursor: pointer; font-size: 16px;}
-        button:hover { background: #2980b9; }
         #status { color: #e74c3c; margin-top: 10px; font-size: 14px; font-weight: bold;}
     </style>
 </head>
 <body>
 <div class="box">
-    <h2>创建账号 (录入人脸)</h2>
+    <h2>创建账号 + 录入人脸</h2>
+    <input type="email" id="reg-email" placeholder="请输入真实邮箱" required>
+    <input type="password" id="reg-password" placeholder="设置密码 (至少6位)" required>
+    <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
     <input type="text" id="reg-name" placeholder="请输入姓名 (必填)" required>
     <input type="number" id="reg-age" placeholder="请输入年龄">
-    <select id="reg-gender">
-        <option value="男">男</option>
-        <option value="女">女</option>
-        <option value="保密">保密</option>
-    </select>
+    <select id="reg-gender"><option value="男">男</option><option value="女">女</option></select>
     
     <video id="reg-video" autoplay muted playsinline></video>
-    <button onclick="startCameraAndRegister()" id="btn-reg">点击拍照并完成注册</button>
-    <div id="status">正在加载 AI 模型，请稍候...</div>
-    <div style="margin-top:20px; font-size:14px;"><a href="index.html">已有账号？去登录</a></div>
+    <button onclick="doRegister()">拍照并完成注册</button>
+    <div id="status">正在加载摄像头与模型...</div>
+    <div style="margin-top:15px;"><a href="index.html">已有账号？去登录</a></div>
 </div>
 
 <script>
-    // 初始化 Supabase
     const supabaseUrl = 'https://ibttldcweltxgogrmrlp.supabase.co'; 
     const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+    const client = supabase.createClient(supabaseUrl, supabaseKey);
 
-    // 加载本地模型
     Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights')
     ]).then(() => {
-        document.getElementById('status').innerText = "AI 模型已就绪，正在打开摄像头...";
+        document.getElementById('status').innerText = "准备就绪，请填写信息并拍照";
         document.getElementById('status').style.color = "#2ecc71";
-        
-        // 模型加载成功后，立刻开启摄像头
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                const video = document.getElementById('reg-video');
-                video.srcObject = stream;
-                video.style.display = 'block'; // 显示摄像头窗口
-                document.getElementById('status').innerText = "请填写信息，然后点击下方按钮注册";
-            })
-            .catch(err => {
-                document.getElementById('status').innerText = "摄像头打开失败：" + err.message;
-            });
-    }).catch(err => {
-        document.getElementById('status').innerText = "模型加载失败，请检查 face-api.js-master 文件夹路径是否正确！";
-        console.error(err);
+        document.getElementById('reg-video').style.display = 'block';
+        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+            document.getElementById('reg-video').srcObject = stream;
+        });
     });
 
-    async function startCameraAndRegister() {
+    async function doRegister() {
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
         const name = document.getElementById('reg-name').value.trim();
-        const age = document.getElementById('reg-age').value;
+        const age = document.getElementById('reg-age').value || null;
         const gender = document.getElementById('reg-gender').value;
         const status = document.getElementById('status');
         const video = document.getElementById('reg-video');
 
-        if (!name) {
-            status.innerText = "姓名是必填项！";
-            status.style.color = "#e74c3c";
-            return;
-        }
+        if (!email || !password || !name) { status.innerText = "邮箱、密码、姓名必填！"; return; }
+        status.innerText = "正在抓拍人脸...";
 
-        status.innerText = "正在抓拍，请保持面部在画面中...";
-        status.style.color = "#1890ff";
-        
         try {
-            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            if (!detection) {
-                status.innerText = "未检测到人脸，请对准镜头重试！";
-                status.style.color = "#e74c3c";
-                return;
-            }
+            // 1. 抓拍
+            const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (!det) throw new Error("未检测到人脸");
 
-            // 截取画面
             const canvas = faceapi.createCanvasFromMedia(video);
             canvas.width = 300; canvas.height = 225;
             canvas.getContext('2d').drawImage(video, 0, 0, 300, 225);
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+            const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg'));
+
+            status.innerText = "正在创建账号...";
+            // 2. 真正注册 Supabase 账号
+            const { data: authData, error: authErr } = await client.auth.signUp({ email, password });
+            if (authErr) throw new Error("注册失败: " + authErr.message);
             
-            // 上传到 Supabase Storage
-            const fileName = `${name}_${Date.now()}.jpg`;
-            const { data: uploadData, error: uploadError } = await supabaseClient.storage
-                .from('faces')
-                .upload(`public/${fileName}`, blob, { contentType: 'image/jpeg' });
+            const userId = authData.user.id; // 拿到真实的用户ID
 
-            if (uploadError) throw new Error("照片上传失败: " + uploadError.message);
+            status.innerText = "正在上传照片...";
+            // 3. 上传照片 (用 userId 命名文件防冲突)
+            const fileName = `${userId}_${Date.now()}.jpg`;
+            const { error: uploadErr } = await client.storage.from('faces').upload(`public/${fileName}`, blob, { contentType: 'image/jpeg' });
+            if (uploadErr) throw new Error("照片上传失败: " + uploadErr.message);
 
-            // 获取链接
-            const { data: urlData } = supabaseClient.storage.from('faces').getPublicUrl(`public/${fileName}`);
+            const { data: urlData } = client.storage.from('faces').getPublicUrl(`public/${fileName}`);
 
-            // 存入数据库
-            const { error: dbError } = await supabaseClient.from('users_face').insert([{
+            status.innerText = "正在保存资料...";
+            // 4. 存关联表
+            const { error: dbErr } = await client.from('users_face').insert([{
+                id: userId, // 注意：数据库主键要能接受UUID，或者你把id改成uuid类型
                 name: name, age: age, gender: gender, image_url: urlData.publicUrl
             }]);
+            // 如果这步报错，可能是你之前的表主键是 bigint 自增，这里需要你在Supabase后台把主键改为 uuid 类型，或者新增一列 user_id。
 
-            if (dbError) throw new Error("保存信息失败: " + dbError.message);
+            if (dbErr) throw new Error("保存资料失败: " + dbErr.message);
 
             status.style.color = "#2ecc71";
             status.innerText = "✅ 注册成功！即将跳转登录...";
