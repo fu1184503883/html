@@ -2,37 +2,52 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>系统登录</title>
+    <title>系统登录 - 动态人脸识别</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="./face-api.js-master/dist/face-api.min.js"></script>
     <style>
         body { font-family: 'Microsoft YaHei'; background: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; text-align: center; }
+        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 380px; text-align: center; }
         input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; margin-top: 10px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 16px; }
+        button { width: 100%; padding: 10px; margin-top: 10px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 16px; transition: 0.3s;}
         .btn-pwd { background-color: #2ecc71; }
         .btn-face { background-color: #3498db; }
         .btn-reg { background-color: #9b59b6; }
-        #status { margin-top: 15px; font-size: 14px; color: #e74c3c; }
-        video { width: 100%; display: none; border-radius: 5px; margin-top: 10px; }
+        .btn-face:hover { background: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #status { margin-top: 15px; font-size: 16px; font-weight: bold; color: #e74c3c; }
+        .video-container { position: relative; width: 100%; margin-top: 15px; display: none; }
+        video { width: 100%; border-radius: 10px; background: #000; transform: scaleX(-1); /* 镜像翻转，看着更自然 */ }
+        canvas { display: none; }
     </style>
 </head>
 <body>
 <div class="box">
     <h2>登录系统</h2>
-    <input type="email" id="email" placeholder="邮箱 (纯人脸登录可不填)">
-    <input type="password" id="password" placeholder="密码 (纯人脸登录可不填)">
-    <button class="btn-pwd" onclick="loginWithPwd()">邮箱密码登录</button>
     
+    <!-- 邮箱密码登录区 -->
+    <div id="pwd-login-area">
+        <input type="email" id="email" placeholder="邮箱">
+        <input type="password" id="password" placeholder="密码">
+        <button class="btn-pwd" onclick="loginWithPwd()">邮箱密码登录</button>
+    </div>
+
     <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
     
-    <input type="text" id="face-name" placeholder="输入姓名进行人脸识别">
-    <button class="btn-face" onclick="loginWithFace()" id="btn-face">开启摄像头人脸登录</button>
-    <video id="video" autoplay muted playsinline></video>
-    
+    <!-- 人脸登录区 -->
+    <div id="face-login-area">
+        <input type="text" id="face-name" placeholder="输入姓名进行人脸识别">
+        <button class="btn-face" id="btn-start-face" onclick="startFaceLogin()">开启摄像头人脸登录</button>
+        
+        <div class="video-container" id="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+    </div>
+
     <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
     <button class="btn-reg" onclick="window.location.href='register.html'">去注册新账号</button>
-    <div id="status"></div>
+    <div id="status">等待操作...</div>
 </div>
 
 <script>
@@ -40,12 +55,7 @@
     const supabaseKey = 'sb_publishable_Kqbd5cTYBdKC6qErlj797w_YbCFjBiA'; 
     const client = supabase.createClient(supabaseUrl, supabaseKey);
 
-    // 检查已有登录状态
-    client.auth.getSession().then(({ data: { session } }) => {
-        if (session) { window.location.href = 'home.html'; }
-    });
-
-    // 1. 邮箱密码登录
+    // --- 邮箱登录逻辑 ---
     async function loginWithPwd() {
         const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
@@ -58,60 +68,147 @@
         else { window.location.href = 'home.html'; }
     }
 
-    // 2. 人脸识别登录
+    // --- 动态人脸识别逻辑 ---
     let isModelLoaded = false;
+    let isFaceLogging = false; // 是否正在进行动态检测
+    let videoStream = null;
+    let referenceDescriptors = []; // 存放数据库里该用户的特征
+    let matchCount = 0; // 连续成功匹配的次数（防误判）
+    let failedAttempts = 0; // 连续失败次数
+
+    // 异步加载模型
     Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceLandmark68Net.loadFromUri('./face-api.js-master/weights'),
         faceapi.nets.faceRecognitionNet.loadFromUri('./face-api.js-master/weights')
-    ]).then(() => { isModelLoaded = true; });
+    ]).then(() => { 
+        isModelLoaded = true; 
+        document.getElementById('status').innerText = "AI模型已就绪";
+        document.getElementById('status').style.color = "#2ecc71";
+    });
 
-    async function loginWithFace() {
+    async function startFaceLogin() {
         const name = document.getElementById('face-name').value.trim();
         const status = document.getElementById('status');
+        const btnStart = document.getElementById('btn-start-face');
         const video = document.getElementById('video');
-        
+        const videoContainer = document.getElementById('video-container');
+
         if (!name) { status.innerText = "请输入姓名"; return; }
         if (!isModelLoaded) { status.innerText = "模型加载中，请稍候..."; return; }
+        if (isFaceLogging) return;
 
+        status.style.color = "#1890ff";
         status.innerText = "正在查询用户信息...";
-        // 去数据库查这个人绑定的邮箱（如果注册时绑定了的话）
+
+        // 1. 查库拿照片链接
         const { data: users } = await client.from('users_face').select('*').eq('name', name);
-        if (!users || users.length === 0) { status.innerText = "未找到该用户"; return; }
+        if (!users || users.length === 0) { status.style.color = "#e74c3c"; status.innerText = "未找到该用户，请先注册"; return; }
 
-        status.innerText = "请正对摄像头，正在识别...";
-        video.style.display = 'block';
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        await new Promise(r => setTimeout(r, 1500));
-
-        const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-        if (!det) { status.innerText = "未检测到人脸"; stopCam(stream, video); return; }
-
-        let isMatch = false;
+        status.innerText = "正在解析底图特征...";
+        
+        // 2. 提取数据库照片的特征，存入数组备用
+        referenceDescriptors = [];
         for (let user of users) {
             const img = await faceapi.fetchImage(user.image_url);
-            const ref = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            if (ref && faceapi.euclideanDistance(det.descriptor, ref.descriptor) < 0.55) {
-                isMatch = true; break;
+            const refDet = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (refDet) {
+                referenceDescriptors.push(refDet.descriptor);
             }
         }
+        if (referenceDescriptors.length === 0) { status.innerText = "底图解析失败，请重新注册"; return; }
 
-        stopCam(stream, video);
-        if (isMatch) {
-            status.style.color = "green";
-            status.innerText = `✅ 欢迎回来，${name}！`;
-            // 注意：纯前端无法直接通过人脸生成 Supabase 的 Session。
-            // 如果你需要真实会话，必须在注册时强制绑定邮箱密码，并在这里悄悄执行一次登录。
-            setTimeout(() => { window.location.href = 'home.html'; }, 1500); 
-        } else {
-            status.innerText = "❌ 人脸不匹配，验证失败";
+        // 3. 开启摄像头，进入持续循环
+        videoContainer.style.display = 'block';
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = videoStream;
+
+        // 状态重置
+        isFaceLogging = true;
+        matchCount = 0;
+        failedAttempts = 0;
+        btnStart.disabled = true;
+        btnStart.innerText = "正在进行动态识别...";
+
+        // 延迟一秒等摄像头画面稳定，然后开始循环
+        await new Promise(r => setTimeout(r, 1000));
+        status.innerText = "请正对摄像头，保持面部在框内";
+        runDetectionLoop(video);
+    }
+
+    // 核心：持续检测循环
+    async function runDetectionLoop(video) {
+        if (!isFaceLogging) return;
+        const status = document.getElementById('status');
+
+        try {
+            // 抓取当前帧
+            const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+
+            if (det) {
+                // 如果有人脸，和所有底图进行比对
+                let minDistance = 1.0;
+                for (let refDesc of referenceDescriptors) {
+                    const distance = faceapi.euclideanDistance(det.descriptor, refDesc);
+                    if (distance < minDistance) minDistance = distance;
+                }
+
+                // 如果距离小于阈值，算作匹配成功
+                if (minDistance < 0.6) {
+                    matchCount++;
+                    failedAttempts = 0; // 重置失败次数
+                    status.style.color = "#2ecc71";
+                    status.innerText = `识别中... 请保持 (匹配度: ${(1 - minDistance).toFixed(2)})`;
+                    
+                    // 连续匹配成功 3 次，才允许登录（防止视频闪屏误判）
+                    if (matchCount >= 3) {
+                        status.innerText = "✅ 验证成功，正在登录...";
+                        stopCamera();
+                        setTimeout(() => { window.location.href = 'home.html'; }, 1000);
+                        return;
+                    }
+                } else {
+                    // 检测到脸，但不匹配
+                    matchCount = 0;
+                    failedAttempts++;
+                    status.style.color = "#e67e22";
+                    status.innerText = `人脸不匹配，请调整角度... (尝试 ${failedAttempts})`;
+                }
+            } else {
+                // 没检测到脸
+                matchCount = 0;
+                status.style.color = "#e74c3c";
+                status.innerText = "未检测到人脸，请靠近一点";
+            }
+
+            // 如果失败次数太多（比如连续 15 次，大约 10 秒），给出提示，但不关闭摄像头
+            if (failedAttempts >= 15) {
+                status.innerText = "多次未匹配，请检查光线，或重新输入姓名";
+                status.style.color = "#e74c3c";
+                stopCamera(); 
+                return;
+            }
+
+            // 继续下一次检测（每 800 毫秒抓一帧）
+            if (isFaceLogging) {
+                setTimeout(() => runDetectionLoop(video), 800);
+            }
+
+        } catch (error) {
+            console.error(error);
+            setTimeout(() => runDetectionLoop(video), 1000);
         }
     }
 
-    function stopCam(stream, video) {
-        stream.getTracks().forEach(t => t.stop());
-        video.style.display = 'none';
+    function stopCamera() {
+        isFaceLogging = false;
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            videoStream = null;
+        }
+        document.getElementById('video-container').style.display = 'none';
+        document.getElementById('btn-start-face').disabled = false;
+        document.getElementById('btn-start-face').innerText = "开启摄像头人脸登录";
     }
 </script>
 </body>
